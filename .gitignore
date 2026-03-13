@@ -1,7 +1,9 @@
 .venv/
+.venv*/
 __pycache__/
 *.pyc
 output-test/
 output-test-2/
+output-verify-314/
 output/*
 !output/.gitkeep

@@ -35,10 +35,23 @@ website-to-markdown-rag-crawler/
 
 - Python 3.11+
 
+Validated locally with:
+
+- Python 3.11
+- Python 3.14
+
 ## Setup
 
 ```bash
 python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+If you want to use Python 3.14 instead:
+
+```bash
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -110,6 +123,7 @@ This crawler prepares a website as a lightweight Markdown knowledge base. That o
 - The crawler follows only internal links discovered inside extracted main content
 - Query strings and fragments are ignored for deduplication
 - Links such as `javascript:`, `mailto:`, login/account pages, and common non-HTML assets are skipped
+- `requirements.txt` pins `chardet<6` to avoid a known `requests` compatibility warning in Python 3.14 environments where a transitive dependency installs `chardet` 7.x
 - Some websites rely heavily on client-side rendering; this project does not run a browser, so such pages may produce limited output
 
 ## License
