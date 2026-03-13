@@ -27,7 +27,7 @@ DEFAULT_HEADERS = {
 
 @dataclass(slots=True)
 class CrawlConfig:
-    start_url: str
+    start_urls: list[str]
     max_depth: int
     max_pages: int
     output_folder: Path
@@ -68,14 +68,14 @@ class RobotsCache:
 class WebsiteCrawler:
     def __init__(self, config: CrawlConfig) -> None:
         self.config = config
-        self.start_url = canonicalize_url(config.start_url)
-        if not self.start_url:
-            raise ValueError("Start URL must be a valid http/https URL.")
+        self.start_urls = [canonicalize_url(url) for url in config.start_urls]
+        if not self.start_urls or any(url is None for url in self.start_urls):
+            raise ValueError("All start URLs must be valid http/https URLs.")
 
-        self.root_domain = get_registered_domain(self.start_url)
+        self.start_urls = [url for url in self.start_urls if url is not None]
         self.visited: set[str] = set()
-        self.enqueued: set[str] = {self.start_url}
-        self.queue: asyncio.Queue[tuple[str, int]] = asyncio.Queue()
+        self.enqueued: set[str] = set(self.start_urls)
+        self.queue: asyncio.Queue[tuple[str, int, str]] = asyncio.Queue()
         self.robots = RobotsCache(config.user_agent)
         self.pages_written = 0
         self._page_lock = asyncio.Lock()
@@ -85,7 +85,8 @@ class WebsiteCrawler:
         headers = {"User-Agent": self.config.user_agent, **DEFAULT_HEADERS}
         connector = aiohttp.TCPConnector(limit_per_host=self.config.concurrency)
         async with aiohttp.ClientSession(timeout=timeout, headers=headers, connector=connector) as session:
-            await self.queue.put((self.start_url, 0))
+            for start_url in self.start_urls:
+                await self.queue.put((start_url, 0, get_registered_domain(start_url)))
             workers = [asyncio.create_task(self._worker(session)) for _ in range(self.config.concurrency)]
             await self.queue.join()
             for worker in workers:
@@ -95,15 +96,21 @@ class WebsiteCrawler:
 
     async def _worker(self, session: aiohttp.ClientSession) -> None:
         while True:
-            url, depth = await self.queue.get()
+            url, depth, root_domain = await self.queue.get()
             try:
-                await self._process_url(session, url, depth)
+                await self._process_url(session, url, depth, root_domain)
             except Exception:
                 pass
             finally:
                 self.queue.task_done()
 
-    async def _process_url(self, session: aiohttp.ClientSession, url: str, depth: int) -> None:
+    async def _process_url(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        depth: int,
+        root_domain: str,
+    ) -> None:
         if url in self.visited:
             return
 
@@ -126,7 +133,7 @@ class WebsiteCrawler:
 
         write_markdown(
             base_output=self.config.output_folder,
-            domain=self.root_domain,
+            domain=root_domain,
             url=url,
             title=extracted.title,
             markdown=extracted.markdown,
@@ -140,12 +147,12 @@ class WebsiteCrawler:
         if depth >= self.config.max_depth:
             return
 
-        links = extract_links_from_html(extracted.html_for_links, url, self.root_domain)
+        links = extract_links_from_html(extracted.html_for_links, url, root_domain)
         for link in dedupe_urls(links):
             if link in self.visited or link in self.enqueued:
                 continue
             self.enqueued.add(link)
-            await self.queue.put((link, depth + 1))
+            await self.queue.put((link, depth + 1, root_domain))
 
     async def _fetch_html(self, session: aiohttp.ClientSession, url: str) -> str | None:
         await asyncio.sleep(self.config.delay)
@@ -188,7 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Crawl a website, extract main content, and write clean Markdown files.",
     )
-    parser.add_argument("url", help="Starting URL to crawl")
+    parser.add_argument("urls", nargs="+", help="One or more starting URLs to crawl")
     parser.add_argument("--depth", type=int, default=2, help="Maximum crawl depth")
     parser.add_argument("--max-pages", type=int, default=100, help="Maximum number of pages to crawl")
     parser.add_argument(
@@ -216,7 +223,7 @@ def validate_args(args: argparse.Namespace) -> CrawlConfig:
         raise ValueError("--timeout must be > 0")
 
     return CrawlConfig(
-        start_url=args.url,
+        start_urls=args.urls,
         max_depth=args.depth,
         max_pages=args.max_pages,
         output_folder=Path(args.output_folder),

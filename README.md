@@ -1,10 +1,10 @@
 # Website to Markdown RAG Crawler
 
-An open-source Python crawler that starts from a URL, extracts only the main article or page content, follows internal links found inside that content, and writes clean Markdown files for downstream retrieval-augmented generation (RAG) pipelines.
+An open-source Python crawler that starts from one or more URLs, extracts only the main article or page content, follows internal links found inside that content, and writes clean Markdown files for downstream retrieval-augmented generation (RAG) pipelines.
 
 ## Features
 
-- Crawls recursively from a starting URL
+- Crawls recursively from one or more starting URLs
 - Restricts crawling to the same domain
 - Ignores query parameters and duplicate URLs
 - Respects `robots.txt`
@@ -64,6 +64,12 @@ Basic usage:
 python main.py https://example.com
 ```
 
+Multiple starting URLs:
+
+```bash
+python main.py https://example.com https://docs.python.org/3/
+```
+
 With options:
 
 ```bash
@@ -77,7 +83,7 @@ python main.py https://example.com \
 
 ## CLI Options
 
-- `--depth`: Maximum crawl depth from the start URL
+- `--depth`: Maximum crawl depth from each starting URL
 - `--max-pages`: Maximum number of pages to fetch
 - `--output-folder`: Base folder for Markdown output
 - `--concurrency`: Number of concurrent fetch workers
@@ -121,6 +127,7 @@ This crawler prepares a website as a lightweight Markdown knowledge base. That o
 ## Notes
 
 - The crawler follows only internal links discovered inside extracted main content
+- When multiple starting URLs are provided, each URL is crawled independently within its own domain boundary
 - Query strings and fragments are ignored for deduplication
 - Links such as `javascript:`, `mailto:`, login/account pages, and common non-HTML assets are skipped
 - `requirements.txt` pins `chardet<6` to avoid a known `requests` compatibility warning in Python 3.14 environments where a transitive dependency installs `chardet` 7.x
