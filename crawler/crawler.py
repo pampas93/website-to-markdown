@@ -3,19 +3,26 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from collections.abc import Awaitable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib import robotparser
 
 import aiohttp
+import requests
 
 from .extractor import extract_main_content
 from .link_utils import canonicalize_url, dedupe_urls, extract_links_from_html, get_registered_domain
 from .markdown_writer import write_markdown
 
 
-DEFAULT_USER_AGENT = "website-to-markdown-rag-crawler/1.0"
+DEFAULT_USER_AGENT = (
+    "website-to-markdown-rag-crawler/1.0 "
+    "(+https://github.com/pampas93/website-to-markdown)"
+)
+DEFAULT_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 @dataclass(slots=True)
@@ -75,7 +82,7 @@ class WebsiteCrawler:
 
     async def crawl(self) -> int:
         timeout = aiohttp.ClientTimeout(total=self.config.timeout)
-        headers = {"User-Agent": self.config.user_agent}
+        headers = {"User-Agent": self.config.user_agent, **DEFAULT_HEADERS}
         connector = aiohttp.TCPConnector(limit_per_host=self.config.concurrency)
         async with aiohttp.ClientSession(timeout=timeout, headers=headers, connector=connector) as session:
             await self.queue.put((self.start_url, 0))
@@ -91,6 +98,8 @@ class WebsiteCrawler:
             url, depth = await self.queue.get()
             try:
                 await self._process_url(session, url, depth)
+            except Exception:
+                pass
             finally:
                 self.queue.task_done()
 
@@ -142,6 +151,8 @@ class WebsiteCrawler:
         await asyncio.sleep(self.config.delay)
         try:
             async with session.get(url, allow_redirects=True) as response:
+                if response.status in {403, 429}:
+                    return await self._fetch_html_with_requests(url)
                 if response.status >= 400:
                     return None
                 content_type = response.headers.get("Content-Type", "").lower()
@@ -149,7 +160,28 @@ class WebsiteCrawler:
                     return None
                 return await response.text(errors="ignore")
         except Exception:
-            return None
+            return await self._fetch_html_with_requests(url)
+
+    async def _fetch_html_with_requests(self, url: str) -> str | None:
+        def _request() -> str | None:
+            try:
+                response = requests.get(
+                    url,
+                    headers={"User-Agent": self.config.user_agent, **DEFAULT_HEADERS},
+                    timeout=self.config.timeout,
+                    allow_redirects=True,
+                )
+                if response.status_code >= 400:
+                    return None
+                content_type = response.headers.get("Content-Type", "").lower()
+                if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+                    return None
+                response.encoding = response.encoding or response.apparent_encoding
+                return response.text
+            except Exception:
+                return None
+
+        return await asyncio.to_thread(_request)
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -45,15 +45,19 @@ def _extract_title_from_html(html: str) -> str:
 
 def extract_main_content(html: str, url: str) -> ExtractionResult | None:
     document_title = _extract_title_from_html(html)
-    trafilatura_html = trafilatura.extract(
-        html,
-        url=url,
-        output_format="html",
-        include_links=True,
-        include_images=False,
-        include_tables=True,
-        favor_recall=True,
-    )
+    try:
+        trafilatura_html = trafilatura.extract(
+            html,
+            url=url,
+            output_format="html",
+            include_links=True,
+            include_images=False,
+            include_tables=True,
+            favor_recall=True,
+        )
+    except Exception:
+        trafilatura_html = None
+
     if trafilatura_html:
         title = _extract_title_from_html(trafilatura_html)
         if title == "Untitled":
